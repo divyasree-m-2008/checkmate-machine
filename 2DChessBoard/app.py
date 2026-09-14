@@ -503,3 +503,90 @@ if __name__ == "__main__":
     )
 
     print("\nProcessing complete!")
+import torch
+import torchvision.transforms as transforms
+from PIL import Image
+
+# ==========================================
+# 1. Define the Reusable CNN Transformation
+# ==========================================
+# Adjust IMAGE_SIZE, MEAN, and STD if your model used custom values during training.
+IMAGE_SIZE = 224  # Standard for many CNNs (e.g., ResNet). Change to 64, 128, etc., if needed.
+IMAGE_NET_MEAN = [0.485, 0.456, 0.406]
+IMAGE_NET_STD = [0.229, 0.224, 0.225]
+
+inference_transforms = transforms.Compose([
+    transforms.Resize((IMAGE_SIZE, IMAGE_SIZE)),
+    transforms.ToTensor(),
+    transforms.Normalize(mean=IMAGE_NET_MEAN, std=IMAGE_NET_STD)
+])
+
+# ==========================================
+# 2. Implement the 64-Square Slicing Function
+# ==========================================
+def slice_chessboard_to_tensors(image_path: str, transform_pipeline: transforms.Compose) -> torch.Tensor:
+    """
+    Slices a standard chessboard image into 64 uniform squares and prepares 
+    them as a single batched tensor for CNN inference.
+    
+    Args:
+        image_path (str): Path to the cropped, top-down chessboard image.
+        transform_pipeline (transforms.Compose): Torchvision transform pipeline.
+        
+    Returns:
+        torch.Tensor: A batch tensor of shape (64, C, H, W) ready for the CNN.
+    """
+    # Open image and ensure it's in RGB mode
+    img = Image.open(image_path).convert('RGB')
+    width, height = img.size
+    
+    # Calculate uniform step sizes for an 8x8 grid
+    square_w = width / 8
+    square_h = height / 8
+    
+    square_tensors = []
+    
+    # Iterate through ranks (rows) and files (columns)
+    # Chess arrays conventionally go from top-left (A8/H8 depending on orientation) to bottom-right
+    for row in range(8):
+        for col in range(8):
+            # Define bounding box coordinates
+            left = col * square_w
+            top = row * square_h
+            right = (col + 1) * square_w
+            bottom = (row + 1) * square_h
+            
+            # Crop the individual square
+            square_img = img.crop((left, top, right, bottom))
+            
+            # Apply torchvision pipeline (Resize -> Tensor -> Normalize)
+            transformed_square = transform_pipeline(square_img)
+            
+            square_tensors.append(transformed_square)
+            
+    # Stack all 64 square tensors into a single batched tensor
+    # Output shape: [64, 3, IMAGE_SIZE, IMAGE_SIZE]
+    batch_tensor = torch.stack(square_tensors)
+    return batch_tensor
+
+# ==========================================
+# 3. Example Usage for Model Inference
+# ==========================================
+if __name__ == "__main__":
+    # Preprocess the entire board into a single batch
+    chessboard_image_path = "detected_chessboard.jpg"
+    
+    try:
+        input_batch = slice_chessboard_to_tensors(chessboard_image_path, inference_transforms)
+        print(f"Successfully processed batch tensor shape: {input_batch.shape}")
+        
+        # Example Inference Step:
+        # model = YourChessCNN()
+        # model.load_state_dict(torch.load('chess_piece_cnn.pth'))
+        # model.eval()
+        # with torch.no_grad():
+        #     predictions = model(input_batch) # Shape: [64, num_classes]
+            
+    except FileNotFoundError:
+        print(f"Please provide a valid image path to replace '{chessboard_image_path}'.")
+    
